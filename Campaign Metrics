@@ -1,0 +1,48 @@
+# Campaign Metrics — Formula Reference (1-page)
+
+Quick reference for reviewing whether each metric is calculated correctly. Full context: `MARKETING_EMAIL_CAMPAIGNS_DOCUMENTATION.md`.
+
+**Attribution key (both channels):** Every campaign link carries `utm_id=<campaignLogId>`. When a ticket is purchased, `Ticket.metadata.acquisition.campaignId` stores that same id — Conversions/Revenue for both channels are always: *"tickets where `campaignId` == this campaign's `_id`, status ≠ cancelled."*
+
+---
+
+## WhatsApp Marketing
+
+| Metric | 1-line meaning | Formula / Logic |
+|---|---|---|
+| **Sent** | Messages MSG91 accepted for delivery at send time | `totalSent` (count of successful MSG91 API responses in the send loop) |
+| **Delivered** | Messages actually delivered, per WhatsApp's own delivery receipt | If MSG91 webhook has reported back (`deliveryTracking.refs` non-empty): `counts.delivered + counts.read`. Otherwise **unavailable** (`--`) — never shown as a false 0 |
+| **Failed** | Messages that failed, at send-time OR at delivery | If webhook has reported back: `counts.failed` (authoritative — a message can be *accepted* at send but *fail* delivery later). Otherwise falls back to `totalFailed` (immediate API-time rejections only) |
+| **Clicks** | Recipients who tapped the CTA and landed on the site | `clickTracking.count` — incremented by a frontend beacon fired once per session when a page loads with `utm_source` containing `"whatsapp"` + a matching `utm_id`. **Approximate** — no native "button tapped" webhook exists |
+| **CTR** | % of sent messages that resulted in a click | `Clicks ÷ Sent` |
+| **Conversions** | Ticket purchases attributed to this campaign | Count of matching tickets (see attribution key above) |
+| **Conv. Rate** | % of the audience that converted | `Conversions ÷ Delivered` (falls back to `÷ Sent` if delivery isn't webhook-confirmed yet) |
+| **Revenue** | Total ₹ from attributed ticket purchases | `Σ ticket.price.amount` for matching tickets |
+| **Revenue/Recipient** | Revenue efficiency per message sent | `Revenue ÷ Sent` |
+| **Cost (estimate, pre-send)** | Upfront budget check before sending | `Targeted × ₹0.86/msg` |
+| **Cost (actual, post-send)** | Real messaging spend | `Delivered × ₹0.86/msg` — uses the webhook-confirmed delivered count, since undelivered messages presumably aren't billed by Meta/MSG91 |
+
+## Email Outreach
+
+| Metric | 1-line meaning | Formula / Logic |
+|---|---|---|
+| **Delivered** | Emails SMTP accepted for sending | `successCount` — ⚠️ this is SMTP-acceptance, not a real carrier delivery confirmation (no ESP webhook exists) |
+| **Failed** | Emails SMTP rejected outright | `failedCount` |
+| **Opens (unique)** | Distinct recipients who opened the email | `tracking.uniqueOpens` — a 1×1 tracking pixel is embedded in every sent email; first hit per recipient counts as a unique open |
+| **Open Rate** | % of delivered emails that were opened | `Unique Opens ÷ Delivered` |
+| **Clicks (unique)** | Distinct recipients who clicked a link | `tracking.uniqueClicks` — every `http(s)` link in the email body is auto-rewritten to a tracked redirect at send time; first click per recipient counts as unique. **Exact**, not approximate |
+| **CTR** | % of delivered emails that got a click | `Unique Clicks ÷ Delivered` |
+| **CTOR** (click-to-open) | Of people who opened, how many also clicked | `Unique Clicks ÷ Unique Opens` — measures content effectiveness independent of deliverability |
+| **Conversions** | Ticket purchases attributed to this campaign | Count of matching tickets (see attribution key above) |
+| **Conv. Rate** | % of delivered emails that converted | `Conversions ÷ Delivered` |
+| **Revenue** | Total ₹ from attributed ticket purchases | `Σ ticket.price.amount` for matching tickets |
+| **Revenue/Recipient** | Revenue efficiency per email delivered | `Revenue ÷ Delivered` |
+| **Cost** | SMTP sending cost | `Delivered × ₹0.015/email` (₹150 per 10,000 sends) — billed per send/credit consumed, not per confirmed delivery, unlike WhatsApp |
+
+---
+
+## Known, intentional gaps (not bugs)
+
+- **Replies, Unsubscribes/Opt-outs, Spam Complaints, Block Rate** — not implemented for either channel (would need an inbound-message webhook / suppression list / ESP webhook).
+- **Historical campaigns** sent before 2026-07-15 have no click/open/conversion/cost data — tracking only applies going forward.
+- **Apple Mail Privacy Protection** and corporate link-scanners (Defender Safe Links) pre-fetch the email pixel/links regardless of real opens — inflates Email Opens/Clicks for those recipients. Industry-wide limitation, not fixable from our side.
